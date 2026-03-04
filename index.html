@@ -603,7 +603,11 @@ function tasksForDate(ds){
         else if(t.repeat==='weekdays'&&dow>=1&&dow<=5)ok=true;
         else if(t.repeat==='weekly'&&dFrom(t.date).getDay()===dow)ok=true;
         else if(t.date===ds)ok=true;
-        if(ok&&!seen.has(t.id)){seen.add(t.id);list.push({...t,_ds:ds});}
+        if (ok && !seen.has(t.id)) {
+    seen.add(t.id);
+    const dayStatus = t.repeat ? (t.doneMap?.[ds] || 'todo') : t.status;
+    list.push({...t, _ds: ds, status: dayStatus});
+}
     });
     if(ds===todayStr()){
         const tom=new Date();tom.setDate(tom.getDate()+1);
@@ -791,12 +795,20 @@ function makeTaskCard(t,i){
         </div>`;
     // 状态切换 → 重新排序渲染
     card.querySelector('.st-btn').addEventListener('click',e=>{
-        e.stopPropagation();
-        const real=DB.tasks.find(x=>x.id===t.id);if(!real)return;
+    e.stopPropagation();
+    const real=DB.tasks.find(x=>x.id===t.id);if(!real)return;
+    if(real.repeat){
+        real.doneMap=real.doneMap||{};
+        const ds=t._ds;
+        const cur=real.doneMap[ds]||'todo';
+        const cy={todo:'doing',doing:'done',done:'todo'};
+        real.doneMap[ds]=cy[cur];
+    }else{
         const cy={todo:'doing',doing:'done',done:'todo'};
         real.status=cy[real.status||'todo'];
-        saveDB();updateStreak();renderActive();
-    });
+    }
+    saveDB();updateStreak();renderActive();
+});
     card.querySelector('.task-more').addEventListener('click',e=>{e.stopPropagation();showTaskCtx(e,t.id);});
     return card;
 }
