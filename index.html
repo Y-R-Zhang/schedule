@@ -640,6 +640,11 @@
         }
         .proj-card.expanded .proj-expand-arrow { transform: rotate(180deg); }
 
+        /* expanded card spans full grid width — fixes right-column narrowing */
+        .proj-grid .proj-card.expanded {
+            grid-column: 1 / -1;
+        }
+
         .proj-subtasks {
             max-height: 0;
             overflow: hidden;
@@ -648,6 +653,45 @@
         .proj-card.expanded .proj-subtasks {
             max-height: 800px;
             margin-top: 10px;
+        }
+
+        /* whole project section collapse — animated via wrapper */
+        .proj-section-wrap {
+            overflow: hidden;
+            max-height: 1000px;
+            transition: max-height .38s cubic-bezier(.4,0,.2,1),
+                        opacity .28s ease,
+                        margin .28s ease;
+            opacity: 1;
+            flex-shrink: 0;
+        }
+        .proj-section-wrap.collapsed {
+            max-height: 0 !important;
+            opacity: 0;
+            margin-top: 0;
+            margin-bottom: 0;
+        }
+        .proj-collapse-btn {
+            font-size: 26px;
+            line-height: 1;
+            vertical-align: middle;
+            color: var(--muted);
+            cursor: pointer;
+            background: none;
+            border: none;
+            padding: 0 0 0 5px;
+            transition: transform .3s cubic-bezier(.4,0,.2,1);
+            display: inline-block;
+        }
+        .proj-section-collapsed .proj-collapse-btn {
+            transform: rotate(-90deg);
+        }
+        /* make title row clickable */
+        #proj-sec-hd h3 {
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
         }
 
         /* TASK LIST */
@@ -1141,6 +1185,27 @@
             color: var(--muted);
             letter-spacing: .1em;
             margin-bottom: 8px;
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .ov-g-title .ov-collapse-arrow {
+            font-size: 26px;
+            transition: transform .3s cubic-bezier(.4,0,.2,1);
+            display: inline-block;
+            line-height: 1;
+        }
+        .ov-proj-wrap {
+            overflow: hidden;
+            max-height: 2000px;
+            transition: max-height .38s cubic-bezier(.4,0,.2,1), opacity .28s ease;
+            opacity: 1;
+        }
+        .ov-proj-wrap.collapsed {
+            max-height: 0;
+            opacity: 0;
         }
 
         /* ⑫ Project expand — max-height animation */
@@ -2094,9 +2159,11 @@
             <div class="prog-bar"><div class="prog-fill" id="prog-fill" style="width:0%"></div></div>
         </div>
         <div id="urgent-zone"></div>
-        <div class="sec-hd"><h3>进行中的项目</h3><span id="proj-count-lbl">0 个</span></div>
-        <div class="proj-grid" id="proj-scroll"></div>
-        <button class="proj-grid-toggle" id="proj-grid-toggle" style="display:none"></button>
+        <div class="sec-hd" id="proj-sec-hd"><h3>进行中的项目 <button class="proj-collapse-btn" id="proj-collapse-btn" title="收起">▾</button></h3><span id="proj-count-lbl">0 个</span></div>
+        <div class="proj-section-wrap" id="proj-section-wrap">
+            <div class="proj-grid" id="proj-scroll"></div>
+            <button class="proj-grid-toggle" id="proj-grid-toggle" style="display:none"></button>
+        </div>
         <div class="sec-hd"><h3 id="task-sec-title">今日任务</h3><span id="task-sec-count">0 条</span></div>
         <div class="task-list" id="today-task-list"></div>
     </div>
@@ -2452,31 +2519,85 @@ function renderUrgent(){
 }
 
 let projGridExpanded=false;
+let projSectionCollapsed=false;
+
+function toggleProjSection(){
+    projSectionCollapsed=!projSectionCollapsed;
+    const wrap=document.getElementById('proj-section-wrap');
+    const btn=document.getElementById('proj-collapse-btn');
+    const hd=document.getElementById('proj-sec-hd');
+    if(projSectionCollapsed){
+        wrap.classList.add('collapsed');
+        btn.style.transform='rotate(-90deg)';
+        hd.classList.add('proj-section-collapsed');
+    }else{
+        wrap.classList.remove('collapsed');
+        btn.style.transform='';
+        hd.classList.remove('proj-section-collapsed');
+        renderProjCards();
+    }
+}
+
+document.getElementById('proj-collapse-btn').addEventListener('click',e=>{
+    e.stopPropagation();
+    toggleProjSection();
+});
+document.getElementById('proj-sec-hd').querySelector('h3').addEventListener('click',toggleProjSection);
+
+function makeProjCard(p,cc){
+    const sub=DB.tasks.filter(t=>t.projId===p.id),done=sub.filter(t=>t.status==='done').length,pct=sub.length?Math.round(done/sub.length*100):0;
+    let cd='无截止日',nc='';
+    if(p.deadline){const diff=Math.ceil((dFrom(p.deadline)-new Date())/86400000);cd=diff<0?'已逾期':diff===0?'今日截止':diff+'天后截止';if(diff<=3)nc='near';}
+    const card=document.createElement('div');card.className='proj-card';
+    const hdr=document.createElement('div');
+    hdr.innerHTML=`<div class="proj-cat-dot" style="background:${cc[p.cat]||cc.other}"></div><button class="proj-more" data-pid="${p.id}">⋯</button><div class="proj-name">${esc(p.name)}</div><div class="proj-cd ${nc}">${cd}</div><div class="proj-pbar"><div class="proj-pfill" style="width:${pct}%"></div></div><div class="proj-pct">${done}/${sub.length} · ${pct}%</div><span class="proj-expand-arrow">▾</span>`;
+    card.appendChild(hdr);
+    const stArea=document.createElement('div');stArea.className='proj-subtasks';
+    const stList=document.createElement('div');stList.className='task-list';stList.style.cssText='padding:0;gap:6px;display:flex;flex-direction:column;';
+    stArea.appendChild(stList);
+    const addBtn=document.createElement('button');addBtn.className='sub-btn sec';addBtn.textContent='＋ 添加子任务';addBtn.style.cssText='margin-top:8px;font-size:12px;padding:9px;';
+    addBtn.addEventListener('click',e=>{e.stopPropagation();openTaskModal(null,selectedDate,p.id);});
+    stArea.appendChild(addBtn);
+    card.appendChild(stArea);
+    card.addEventListener('click',e=>{
+        if(e.target.closest('.proj-more'))return;
+        const isOpen=card.classList.contains('expanded');
+        // close all other expanded cards in same grid
+        card.closest('.proj-grid,div')?.querySelectorAll('.proj-card.expanded').forEach(c=>{if(c!==card)c.classList.remove('expanded');});
+        if(!isOpen){
+            stList.innerHTML='';
+            if(!sub.length){stList.innerHTML='<div style="font-size:12px;color:var(--muted);padding:6px 0;font-family:var(--mono);">暂无子任务</div>';}
+            else sub.forEach((t,i)=>{
+                const ds=selectedDate;
+                const dayStatus=t.repeat?(t.doneMap?.[ds]||'todo'):t.status;
+                stList.appendChild(makeTaskCard({...t,_ds:ds,status:dayStatus},i));
+            });
+            card.classList.add('expanded');
+        }else{
+            card.classList.remove('expanded');
+        }
+    });
+    card.querySelector('.proj-more').addEventListener('click',e=>{e.stopPropagation();showProjCtx(e,p.id);});
+    return card;
+}
+
 function renderProjCards(){
     const s=document.getElementById('proj-scroll');s.innerHTML='';
     const toggleBtn=document.getElementById('proj-grid-toggle');
     document.getElementById('proj-count-lbl').textContent=DB.projects.length+' 个';
+    if(projSectionCollapsed){toggleBtn.style.display='none';return;}
     if(!DB.projects.length){
-        s.innerHTML='<div class="empty-state" style="grid-column:1/-1;padding:10px 0;font-size:10px;letter-spacing:.1em;">暂无项目</div>';
+        s.innerHTML='<div class="empty-state" style="grid-column:1/-1;padding:10px 0;font-size:12px;letter-spacing:.1em;">暂无项目</div>';
         toggleBtn.style.display='none';return;
     }
     const cc={study:'var(--gold)',project:'var(--purple)',life:'var(--green)',other:'var(--muted)'};
     const SHOW=4;
     const projs=DB.projects;
     const visible=projGridExpanded?projs:projs.slice(0,SHOW);
-    visible.forEach(p=>{
-        const sub=DB.tasks.filter(t=>t.projId===p.id),done=sub.filter(t=>t.status==='done').length,pct=sub.length?Math.round(done/sub.length*100):0;
-        let cd='无截止日',nc='';
-        if(p.deadline){const diff=Math.ceil((dFrom(p.deadline)-new Date())/86400000);cd=diff<0?'已逾期':diff===0?'今日截止':diff+'天后截止';if(diff<=3)nc='near';}
-        const card=document.createElement('div');card.className='proj-card';
-        card.innerHTML=`<div class="proj-cat-dot" style="background:${cc[p.cat]||cc.other}"></div><button class="proj-more" data-pid="${p.id}">⋯</button><div class="proj-name">${esc(p.name)}</div><div class="proj-cd ${nc}">${cd}</div><div class="proj-pbar"><div class="proj-pfill" style="width:${pct}%"></div></div><div class="proj-pct">${done}/${sub.length} · ${pct}%</div>`;
-        card.querySelector('.proj-more').addEventListener('click',e=>{e.stopPropagation();showProjCtx(e,p.id);});
-        s.appendChild(card);
-    });
-    // ② toggle button
+    visible.forEach(p=>s.appendChild(makeProjCard(p,cc)));
     if(projs.length>SHOW){
         toggleBtn.style.display='';
-        toggleBtn.textContent=projGridExpanded?'▲ 收起项目':'▼ 展开全部 '+(projs.length-SHOW)+' 个';
+        toggleBtn.textContent=projGridExpanded?'▲ 收起':'▼ 展开全部 '+(projs.length-SHOW)+' 个';
         toggleBtn.onclick=()=>{projGridExpanded=!projGridExpanded;renderProjCards();};
     }else{
         toggleBtn.style.display='none';
@@ -2629,49 +2750,30 @@ function renderOverview(){
     if(ovQ)tasks=tasks.filter(t=>t.name.includes(ovQ));
     const standalone=tasks.filter(t=>!t.projId);
 
-    // ③ Projects: 2-col grid same as homepage
+    // ③ Projects: 2-col grid, reuse makeProjCard
     if(DB.projects.length){
         const projSec=document.createElement('div');
         projSec.style.cssText='margin:0 20px 14px;';
         const projTitle=document.createElement('div');
-        projTitle.className='ov-g-title';projTitle.textContent='// 项目';
+        projTitle.className='ov-g-title';
+        projTitle.innerHTML='<span class="ov-collapse-arrow">▾</span>// 项目';
         projSec.appendChild(projTitle);
+        const projWrap=document.createElement('div');
+        projWrap.className='ov-proj-wrap';
         const grid=document.createElement('div');
-        grid.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:10px;';
+        grid.className='proj-grid';
+        grid.style.cssText='padding:0;';
         const cc={study:'var(--gold)',project:'var(--purple)',life:'var(--green)',other:'var(--muted)'};
-        DB.projects.forEach(p=>{
-            const sub=DB.tasks.filter(t=>t.projId===p.id),done=sub.filter(t=>t.status==='done').length,pct=sub.length?Math.round(done/sub.length*100):0;
-            let cd='无截止日',nc='';
-            if(p.deadline){const diff=Math.ceil((dFrom(p.deadline)-new Date())/86400000);cd=diff<0?'已逾期':diff===0?'今日截止':diff+'天后截止';if(diff<=3)nc='near';}
-            const card=document.createElement('div');card.className='proj-card';
-            // subtask area
-            const hdr=document.createElement('div');
-            hdr.innerHTML=`<div class="proj-cat-dot" style="background:${cc[p.cat]||cc.other}"></div><button class="proj-more" data-pid="${p.id}">⋯</button><div class="proj-name">${esc(p.name)}</div><div class="proj-cd ${nc}">${cd}</div><div class="proj-pbar"><div class="proj-pfill" style="width:${pct}%"></div></div><div class="proj-pct">${done}/${sub.length} · ${pct}%</div><span class="proj-expand-arrow">▾</span>`;
-            card.appendChild(hdr);
-            const stArea=document.createElement('div');stArea.className='proj-subtasks';
-            const stList=document.createElement('div');stList.className='task-list';stList.style.cssText='padding:0;gap:6px;display:flex;flex-direction:column;';
-            stArea.appendChild(stList);
-            const addBtn=document.createElement('button');addBtn.className='sub-btn sec';addBtn.textContent='＋ 添加子任务';addBtn.style.cssText='margin-top:8px;font-size:11px;padding:9px;';
-            addBtn.addEventListener('click',e=>{e.stopPropagation();openTaskModal(null,todayStr(),p.id);});
-            const editBtn=document.createElement('button');editBtn.className='sub-btn sec';editBtn.textContent='✏️ 编辑项目';editBtn.style.cssText='margin-top:6px;font-size:11px;padding:9px;';
-            editBtn.addEventListener('click',e=>{e.stopPropagation();openProjEdit(p.id);});
-            stArea.appendChild(addBtn);stArea.appendChild(editBtn);
-            card.appendChild(stArea);
-            card.addEventListener('click',e=>{
-                if(e.target.closest('.proj-more'))return;
-                const isOpen=card.classList.contains('expanded');
-                document.querySelectorAll('.proj-card.expanded').forEach(c=>{if(c!==card)c.classList.remove('expanded');});
-                if(!isOpen){
-                    stList.innerHTML='';
-                    if(!sub.length){stList.innerHTML='<div style="font-size:11px;color:var(--muted);padding:6px 0;font-family:var(--mono);">暂无子任务</div>';}
-                    else sub.forEach((t,i)=>stList.appendChild(makeTaskCard({...t,_ds:todayStr()},i)));
-                    card.classList.add('expanded');
-                }else{card.classList.remove('expanded');}
-            });
-            card.querySelector('.proj-more').addEventListener('click',e=>{e.stopPropagation();showProjCtx(e,p.id);});
-            grid.appendChild(card);
+        DB.projects.forEach(p=>grid.appendChild(makeProjCard(p,cc)));
+        projWrap.appendChild(grid);
+        projSec.appendChild(projWrap);
+        list.appendChild(projSec);
+        // collapse toggle
+        projTitle.addEventListener('click',()=>{
+            const collapsed=projWrap.classList.toggle('collapsed');
+            const arrow=projTitle.querySelector('.ov-collapse-arrow');
+            arrow.style.transform=collapsed?'rotate(-90deg)':'';
         });
-        projSec.appendChild(grid);list.appendChild(projSec);
     }
 
     if(standalone.length){
